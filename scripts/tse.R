@@ -40,9 +40,20 @@ andreia_de_jesus_mun <- andreia_de_jesus %>%
   select(-soma) %>%
   arrange(-total)
 
-# Write xlsx
-write.xlsx(andreia_de_jesus_mun, "products/votacao_municipal_andreia_de_jesus.xlsx", asTable = FALSE)
+tabela_andreia_de_jesus_mun <- andreia_de_jesus_mun %>%
+  mutate(percentual = round(percentual * 100, digits = 1)) %>%
+  rename(`Município` = NM_MUNICIPIO,
+         `Votação` = total,
+         `Percentual (%)` = percentual)
 
+# Write xlsx
+wb <- createWorkbook()
+addWorksheet(wb, "Votação")
+writeData(wb, "Votação", tabela_andreia_de_jesus_mun)
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+setColWidths(wb, 1, cols = 1:3, widths = "auto")
+saveWorkbook(wb, "products/votacao_municipal_andreia_de_jesus.xlsx", overwrite = TRUE)
 
 # Mapa --------------------------------------------------------------------
 
@@ -80,6 +91,12 @@ mapa_votacao <- andreia_de_jesus_mun_2 %>%
   scale_fill_distiller(palette = "RdPu", direction = 1) +
   geom_label_repel(data = filter(andreia_de_jesus_mun_2, percentual >= 2), aes(label = paste(name_muni, " ",percentual, "%", sep = ""), geometry = geom), label.size = 0.1,
                   stat = "sf_coordinates", min.segment.length = 0, box.padding = 2) +
+  annotation_scale(location = "bl", width_hint = 0.25) +
+  annotation_north_arrow(location = "tl", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
+                         height = unit(1, "cm"),
+                         width = unit(1, "cm"),
+                         style = north_arrow_fancy_orienteering) +
   theme_bw() +
   labs(title = "Distribuição do percentual de votos da Dep. Andréia de Jesus - 2018",
        x = NULL,
@@ -90,9 +107,3 @@ mapa_votacao <- andreia_de_jesus_mun_2 %>%
 mapa_votacao
 
 ggsave("products/Votação da Deputada Andréia de Jesus - 2018.png", mapa_votacao, units = "px", width = 3000, height = 2800)
-
-mapa_distancia <- cl_geral %>%
-  ggplot() +
-  geom_sf(color = "black") +
-  geom_sf(data = cras_territorio, aes(fill = distancia_2),color = NA) +
-  geom_sf(data = cras_geo, color = "red")

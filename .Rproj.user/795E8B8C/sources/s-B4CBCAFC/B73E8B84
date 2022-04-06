@@ -3,9 +3,9 @@
     "path": "~/Documents/Trabalho/FJP/Avaliação Mandato/scripts/tse.R",
     "project_path": "scripts/tse.R",
     "type": "r_source",
-    "hash": "0",
+    "hash": "2362146084",
     "contents": "",
-    "dirty": true,
+    "dirty": false,
     "created": 1648818636097.0,
     "source_on_save": false,
     "relative_order": 1,
@@ -16,11 +16,11 @@
         "scrollLine": "93"
     },
     "folds": "",
-    "lastKnownWriteTime": 1649272276,
+    "lastKnownWriteTime": 1649273402,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1649272839661,
+    "last_content_update": 1649273402756,
     "read_only": false,
     "read_only_alternatives": []
 }
