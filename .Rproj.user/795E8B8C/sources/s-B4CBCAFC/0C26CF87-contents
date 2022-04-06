@@ -1,0 +1,1908 @@
+# Informação Geral --------------------------------------------------------
+
+# Análise das base de dados de letalidade policial - 2013 a 2018
+# Alexandre Freitas
+# Email: alexandre.freitas@fjp.mg.gov.br
+
+# Ler bibliotecas ---------------------------------------------------------
+
+library(tidyverse)
+library(openxlsx)
+library(readxl)
+library(lubridate)
+library(abjutils)
+
+# Ler base de dados -------------------------------------------------------
+
+eventos <- read.xlsx("data/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Eventos - Base Limpa 17_05_2021.xlsx")
+autores <- read.xlsx("data/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Autores - Base Limpa 17_05_2021.xlsx", detectDates = TRUE)
+vitimas <- read.xlsx("data/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Vítimas - Base Limpa 17_05_2021.xlsx", detectDates = TRUE)
+
+
+# Perfil dos envolvidos ---------------------------------------------------
+
+# * Policiais autores -----------------------------------------------------
+
+#• Sexo (percentual)
+
+autores_sexo <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(Sexo, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Raça/cor (percentual)
+autores_raca_cor <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(`Raça/Cor`, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Idade (percentual – faixas etárias)
+autores_idade <- autores %>%
+  left_join(eventos[,c(5, 8)], by = "Número.do.REDS.(principal)") %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  mutate(diff_data = difftime(Data.do.Fato, Data.de.Nascimento, units = "days"),
+         Idade = diff_data/365,
+         Idade = as.integer(Idade),
+         Idade = ifelse(Idade <= 18, NA, Idade),
+         Idade = case_when(Idade < 25 ~ "De 18 a 24 anos",
+                           Idade %in% c(25:29) ~ "De 25 a 29 anos",
+                           Idade %in% c(30:39) ~ "De 30 a 39 anos",
+                           Idade %in% c(40:49) ~ "De 40 a 49 anos",
+                           Idade %in% c(50:59) ~ "De 50 a 59 anos",
+                           Idade >= 60 ~ "60 anos ou mais",
+                           TRUE ~ "SEM INFORMAÇÃO"),
+         Idade = factor(Idade, labels = c("De 18 a 24 anos", "De 25 a 29 anos",
+                                          "De 30 a 39 anos", "De 40 a 49 anos",
+                                          "De 50 a 59 anos", "60 anos ou mais", "SEM INFORMAÇÃO"),
+                        levels = c("De 18 a 24 anos", "De 25 a 29 anos",
+                                   "De 30 a 39 anos", "De 40 a 49 anos",
+                                   "De 50 a 59 anos", "60 anos ou mais", "SEM INFORMAÇÃO"))) %>%
+  count(Idade, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+
+#• Escolaridade (percentual)
+
+# Ajustar variável
+autores <- autores %>%
+  mutate(Escolaridade = factor(Escolaridade, 
+                               levels = c("Sem Instrução",
+                                          "Ensino Fundamental - INCOMPLETO", "Ensino Fundamental - COMPLETO",
+                                          "Ensino Médio - INCOMPLETO", "Ensino Médio - COMPLETO",
+                                          "Ensino Superior - INCOMPLETO", "Ensino Superior - COMPLETO", "Pós-Graduação - COMPLETA", "SEM INFORMAÇÃO"),
+                               labels = c("Sem Instrução",
+                                          "Ensino Fundamental - INCOMPLETO", "Ensino Fundamental - COMPLETO",
+                                          "Ensino Médio - INCOMPLETO", "Ensino Médio - COMPLETO",
+                                          "Ensino Superior - INCOMPLETO", "Ensino Superior - COMPLETO", "Pós-Graduação - COMPLETA", "SEM INFORMAÇÃO"))
+         )
+
+autores_escolaridade <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(Escolaridade, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+#• Folga ou serviço (percentual)
+autores_folga_servico <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(`Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Se policial ou agente de segurança pública, estava em serviço ou de folga?" = `Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?`)
+
+#> Porque tem não se aplica? Ver se precisa corrigir esses dados.
+n_se_aplica <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL",
+         `Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?` == "NÃO SE APLICA")
+
+write.xlsx(n_se_aplica, "data/correção/policial_folga_servico.xlsx", asTable = FALSE)
+
+#> Já corrigido de acordo com policial_folga_servico_correcao.xlsx
+autores <- autores %>%
+  mutate(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` = ifelse(`Número.do.REDS.(principal)` == "2015008436679001" &
+                                                            Nome.completo.do.autor == "MARLEY ANTONIO DA CINHA JUNIOR", "NÃO-POLICIAL",
+                                                          `Autor.é."POLICIAL".ou."NÃO-POLICIAL"?`),
+         `Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` = ifelse(`Número.do.REDS.(principal)` == "2016012173209001" &
+                                                            Nome.completo.do.autor == "ELEDIMAR AMARAL RODRIGUES", "NÃO-POLICIAL",
+                                                          `Autor.é."POLICIAL".ou."NÃO-POLICIAL"?`),
+         `Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` = ifelse(`Número.do.REDS.(principal)` == "2016007254460001" &
+                                                            Nome.completo.do.autor == "FAGNER BERNARDO VILELA DE SANTANA", "NÃO-POLICIAL",
+                                                          `Autor.é."POLICIAL".ou."NÃO-POLICIAL"?`),
+         `Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?` = ifelse(`Número.do.REDS.(principal)` == "2014009469650001" &
+                                                                                                 Nome.completo.do.autor == "ALEXANDRE CARLOS DA SILVA", "De folga",
+                                                                                               `Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?`))
+
+autores_folga_servico <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(`Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Se policial ou agente de segurança pública, estava em serviço ou de folga?" = `Se.policial.ou.agente.de.segurança.pública,.estava.em.serviço.ou.de.folga?`)
+
+#• Patente/carreira (percentual)
+autores <- autores %>%
+  mutate(`Patente/Carreira` = factor(`Patente/Carreira`,
+                                     levels = c("Soldado - PM",
+                                                "Cabo - PM",
+                                                "Sargento - PM",
+                                                "Subtenente - PM",
+                                                "Tenente - PM",
+                                                "Capitão - PM",
+                                                "Major - PM",
+                                                "Ten. Coronel - PM",
+                                                "Escrivão - PC",
+                                                "Agente ou investigador - PC",
+                                                "Delegado - PC",
+                                                "Outra Carreira - PC",
+                                                "Outro Profissional de Segurança Pública (Ag. Penit., Ag. Socioeduc., Gd. Municipal, etc)",
+                                                "Não-Policial (especificar profissão na próxima questão)",
+                                                "SEM INFORMAÇÃO"
+                                                ),
+                                     labels = c("Soldado - PM",
+                                                "Cabo - PM",
+                                                "Sargento - PM",
+                                                "Subtenente - PM",
+                                                "Tenente - PM",
+                                                "Capitão - PM",
+                                                "Major - PM",
+                                                "Ten. Coronel - PM",
+                                                "Escrivão - PC",
+                                                "Agente ou investigador - PC",
+                                                "Delegado - PC",
+                                                "Outra Carreira - PC",
+                                                "Outro Profissional de Segurança Pública (Ag. Penit., Ag. Socioeduc., Gd. Municipal, etc)",
+                                                "Não-Policial (especificar profissão na próxima questão)",
+                                                "SEM INFORMAÇÃO"
+                                                )
+                                     )
+         )
+
+autores_patente_carreira <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(`Patente/Carreira`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+#• Unidade de lotação (percentual – recodificado especializada ou área)
+autores_unidade_lotacao_2 <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  rename('unidade' = `Unidade.de.lotação.(caso.seja.profissional.de.Segurança.Pública)`) %>%
+  mutate(unidade = toupper(unidade),
+         unidade_2 = case_when(str_detect(unidade, "BPM") ~ "Unidades de Área",
+                               str_detect(unidade, "PM IND") ~ "Unidades de Área",
+                               str_detect(unidade, "CIA IND") ~ "Unidades de Área",
+                               str_detect(unidade, "CIA PM") ~ "Unidades de Área",
+                               str_detect(unidade, "DELEG") ~ "Unidades de Área",
+                               str_detect(unidade, "CIVIL") ~ "Unidades de Área",
+                               str_detect(unidade, "BBM") ~ "Unidades de Área",
+                               str_detect(unidade, "RPM") ~ "Unidades de Área",
+                               str_detect(unidade, " ESP") ~ "Unidades Especializadas",
+                               str_detect(unidade, "BME") ~ "Unidades Especializadas",
+                               str_detect(unidade, "BPE") ~ "Unidades Especializadas",
+                               str_detect(unidade, "PRESÍDIO") ~ "Outras unidades de segurança pública",
+                               str_detect(unidade, "PRESIDIO") ~ "Outras unidades de segurança pública",
+                               str_detect(unidade, "PENITENC") ~ "Outras unidades de segurança pública",
+                               unidade %in% c("TENENTE", "SERVIDOR INATIVO", "SARGENTO") ~ "SEM INFORMAÇÃO",
+                               
+                               TRUE ~ unidade
+                               )
+         ) %>%
+  count(unidade_2) %>%
+  arrange(-n)
+
+#> Escrever xlsx, enviar para o Zilli para ele me retornar com as classificações corretas dos casos restantes
+write.xlsx(autores_unidade_lotacao_2, "data/correção/Unidades.xlsx", asTable = FALSE)
+           
+# Ler base de dados corrigida
+unidades_corrigida <- read.xlsx("data/correção/Unidades_corrigida.xlsx")
+
+autores_unidade_lotacao_3 <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  rename('unidade' = `Unidade.de.lotação.(caso.seja.profissional.de.Segurança.Pública)`) %>%
+  mutate(unidade = toupper(unidade),
+         unidade_2 = case_when(str_detect(unidade, "BPM") ~ "Unidades de Área",
+                               str_detect(unidade, "PM IND") ~ "Unidades de Área",
+                               str_detect(unidade, "CIA IND") ~ "Unidades de Área",
+                               str_detect(unidade, "CIA PM") ~ "Unidades de Área",
+                               str_detect(unidade, "DELEG") ~ "Unidades de Área",
+                               str_detect(unidade, "CIVIL") ~ "Unidades de Área",
+                               str_detect(unidade, "BBM") ~ "Unidades de Área",
+                               str_detect(unidade, "RPM") ~ "Unidades de Área",
+                               str_detect(unidade, " ESP") ~ "Unidades Especializadas",
+                               str_detect(unidade, "BME") ~ "Unidades Especializadas",
+                               str_detect(unidade, "BPE") ~ "Unidades Especializadas",
+                               str_detect(unidade, "PRESÍDIO") ~ "Outras unidades de segurança pública",
+                               str_detect(unidade, "PRESIDIO") ~ "Outras unidades de segurança pública",
+                               str_detect(unidade, "PENITENC") ~ "Outras unidades de segurança pública",
+                               unidade %in% c("TENENTE", "SERVIDOR INATIVO", "SARGENTO") ~ "SEM INFORMAÇÃO",
+                               TRUE ~ unidade
+         )
+  ) %>%
+  left_join(unidades_corrigida, by = c("unidade_2" = "Nome")) %>%
+  mutate(`Classificação da Unidade` = case_when(`Classificação` == 1 ~ "Unidades Especializadas",
+                          `Classificação` == 2 ~ "Unidades de Área",
+                          `Classificação` == 3 ~ "Outras unidades de segurança pública",
+                          `Classificação` == 4 ~ "SEM INFORMAÇÃO",
+                          is.na(`Classificação`) ~ "SEM INFORMAÇÃO"),
+         `Classificação da Unidade` = factor(`Classificação da Unidade`, labels = c("Unidades de Área",
+                                                                                    "Unidades Especializadas",
+                                                                                    "Outras unidades de segurança pública",
+                                                                                    "SEM INFORMAÇÃO"),
+                                             levels = c("Unidades de Área",
+                                                        "Unidades Especializadas",
+                                                        "Outras unidades de segurança pública",
+                                                        "SEM INFORMAÇÃO"))) %>%
+  count(`Classificação da Unidade`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+rm(autores_unidade_lotacao_2, unidades_corrigida)
+
+#• Tipo e número de armas (percentual)
+autores_tipo_arma <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  summarize(across(starts_with("Tipo.e.número.de.armas"), as.numeric)) %>%
+  summarize_all(., sum) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 43, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+autores_tipo_arma_2 <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]` > 0)
+
+write.xlsx(autores_tipo_arma_2, "data/correção/policial_arma_garrucha.xlsx", asTable = FALSE)
+rm(autores_tipo_arma_2)
+
+#> Correção policiais com arma garrucha de acordo com policial_arma_garrucha_correcao
+autores_tipo_arma <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  mutate(`Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` == "2015015566258001" &
+                                                                                               Nome.completo.do.autor == "UILHAN GENEROSO DE JESUS", 0, `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]`),
+         `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` == "2015020057272001" &
+                                                                                               Nome.completo.do.autor == "RODRIGO CESAR DA SILVA", 0, `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]`),
+         `Tipo.e.número.de.armas.em.poder.do.autor.[Pistola]` = ifelse(`Número.do.REDS.(principal)` == "2015015566258001" &
+                                                                         Nome.completo.do.autor == "UILHAN GENEROSO DE JESUS", 1, `Tipo.e.número.de.armas.em.poder.do.autor.[Pistola]`)) %>%
+  summarize(across(starts_with("Tipo.e.número.de.armas"), as.numeric)) %>%
+  summarize_all(., sum) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 43, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Tipo de dano causado (percentual)
+autores_tipo_dano_causado <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(Tipo.de.dano.causado.pelo.autor, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Tipo de dano causado pelo autor" = Tipo.de.dano.causado.pelo.autor)
+
+#• Sofreu dano? (percentual)
+autores_sofreu_dano <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL") %>%
+  count(`Autor.sofreu.dano?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Autor sofreu dano?" = `Autor.sofreu.dano?`)
+
+#• Tipo de dano sofrido (percentual)
+autores_tipo_dano_sofrido <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Autor.sofreu.dano?` == "Sim") %>%
+  count(Tipo.de.dano.sofrido.pelo.autor) %>%
+  mutate(total = sum(n),
+         Percentual = round(n / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Tipo de dano sofrido pelo autor" = Tipo.de.dano.sofrido.pelo.autor)
+
+autores_tipo_dano_sofrido_2 <- autores %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Autor.sofreu.dano?` == "Sim" &
+           Tipo.de.dano.sofrido.pelo.autor == "NÃO SE APLICA")
+
+write.xlsx(autores_tipo_dano_sofrido_2, "data/correção/tipo_dano_sofrido_policial.xlsx", asTable = FALSE)
+rm(autores_tipo_dano_sofrido_2)
+
+#> Corrigido de acordo com tipo_dano_sofrido_policial_correcao.xlsx
+autores_tipo_dano_sofrido <- autores %>%
+  mutate(`Autor.sofreu.dano?` = ifelse(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Autor.sofreu.dano?` == "Sim" &
+                                         Tipo.de.dano.sofrido.pelo.autor == "NÃO SE APLICA", "Não", `Autor.sofreu.dano?`)) %>%
+  filter(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Autor.sofreu.dano?` == "Sim") %>%
+  count(Tipo.de.dano.sofrido.pelo.autor) %>%
+  mutate(total = sum(n),
+         Percentual = round(n / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename("Tipo de dano sofrido pelo autor" = Tipo.de.dano.sofrido.pelo.autor)
+
+# * Escrever xlsx com o resultado da base Autores -------------------------
+
+## Create Workbook object and add worksheets
+wb_autores <- createWorkbook()
+
+## Add worksheets
+addWorksheet(wb_autores, "Sexo")
+addWorksheet(wb_autores, "Raça_Cor")
+addWorksheet(wb_autores, "Escolaridade")
+addWorksheet(wb_autores, "Idade")
+addWorksheet(wb_autores, "Patente_Carreira")
+addWorksheet(wb_autores, "Unidade de Lotação")
+addWorksheet(wb_autores, "Folga_Serviço")
+addWorksheet(wb_autores, "Tipo de arma utilizada")
+addWorksheet(wb_autores, "Tipo do dano causado")
+addWorksheet(wb_autores, "Sofreu dano")
+addWorksheet(wb_autores, "Tipo do dano sofrido")
+
+## Write data in worksheets
+writeData(wb_autores, "Sexo", 
+          autores_sexo)
+writeData(wb_autores, "Raça_Cor", 
+          autores_raca_cor)
+writeData(wb_autores, "Escolaridade", 
+          autores_escolaridade)
+writeData(wb_autores, "Idade", 
+          autores_idade)
+writeData(wb_autores, "Patente_Carreira", 
+          autores_patente_carreira)
+writeData(wb_autores, "Unidade de Lotação", 
+          autores_unidade_lotacao_3)
+writeData(wb_autores, "Folga_Serviço", 
+          autores_folga_servico)
+writeData(wb_autores, "Tipo de arma utilizada", 
+          autores_tipo_arma)
+writeData(wb_autores, "Tipo do dano causado", 
+          autores_tipo_dano_causado)
+writeData(wb_autores, "Sofreu dano", 
+          autores_sofreu_dano)
+writeData(wb_autores, "Tipo do dano sofrido", 
+          autores_tipo_dano_sofrido)
+
+## Header style
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb_autores, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 2, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 3, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 4, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 5, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 6, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 7, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 8, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 9, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 10, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_autores, sheet = 11, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+
+## Save xlsx
+saveWorkbook(wb_autores, "produtos/Perfil dos Autores.xlsx", overwrite = TRUE)
+
+rm(list=ls(pattern="^autores_"))
+rm(n_se_aplica, wb_autores)
+
+# * Cidadãos vítimas ------------------------------------------------------
+
+#• Sexo (percentual)
+vitimas_sexo <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(Sexo, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Raça/cor (percentual)
+vitimas_raca_cor <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(`Raça/Cor`, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Idade (percentual – faixas etárias)
+vitimas_idade <- vitimas %>%
+  left_join(eventos[,c(5, 8)], by = "Número.do.REDS.(principal)") %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  mutate(diff_data = difftime(Data.do.Fato, Data.de.Nascimento, units = "days"),
+         Idade = diff_data/365,
+         Idade = as.integer(Idade),
+         Idade = ifelse(Idade < 1, NA, Idade),
+         Idade = case_when(Idade < 18 ~ "Até 17 anos",
+                           Idade %in% c(18:24) ~ "De 18 a 24 anos",
+                           Idade %in% c(25:29) ~ "De 25 a 29 anos",
+                           Idade %in% c(30:34) ~ "De 30 a 34 anos",
+                           Idade %in% c(35:39) ~ "De 35 a 39 anos",
+                           Idade %in% c(40:44) ~ "De 40 a 44 anos",
+                           Idade %in% c(45:49) ~ "De 45 a 49 anos",
+                           Idade >= 50 ~ "50 anos ou mais",
+                           TRUE ~ "SEM INFORMAÇÃO"),
+         Idade = factor(Idade, labels = c("Até 17 anos", "De 18 a 24 anos",
+                                          "De 25 a 29 anos", "De 30 a 34 anos", "De 35 a 39 anos",
+                                          "De 40 a 44 anos", "De 45 a 49 anos",
+                                          "50 anos ou mais", "SEM INFORMAÇÃO"),
+                        levels = c("Até 17 anos", "De 18 a 24 anos",
+                                   "De 25 a 29 anos", "De 30 a 34 anos", "De 35 a 39 anos",
+                                   "De 40 a 44 anos", "De 45 a 49 anos",
+                                   "50 anos ou mais", "SEM INFORMAÇÃO"))) %>%
+  count(Idade, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+#• Escolaridade (percentual)
+
+# Ajustar variável
+vitimas <- vitimas %>%
+  mutate(Escolaridade = factor(Escolaridade, 
+                               levels = c("Sem Instrução",
+                                          "Ensino Fundamental - INCOMPLETO", "Ensino Fundamental - COMPLETO",
+                                          "Ensino Médio - INCOMPLETO", "Ensino Médio - COMPLETO",
+                                          "Ensino Superior - INCOMPLETO", "Ensino Superior - COMPLETO", "Pós-Graduação - COMPLETA", "SEM INFORMAÇÃO"),
+                               labels = c("Sem Instrução",
+                                          "Ensino Fundamental - INCOMPLETO", "Ensino Fundamental - COMPLETO",
+                                          "Ensino Médio - INCOMPLETO", "Ensino Médio - COMPLETO",
+                                          "Ensino Superior - INCOMPLETO", "Ensino Superior - COMPLETO", "Pós-Graduação - COMPLETA", "SEM INFORMAÇÃO"))
+  )
+
+vitimas_escolaridade <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(Escolaridade, name = "Total") %>%  
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total")))
+
+
+#• Tipo de dano sofrido (percentual)
+vitimas_tipo_dano_sofrido <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(Tipo.de.dano.sofrido, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#• Foi socorrido? (percentual)
+vitimas <- vitimas %>%
+  mutate(`Foi.socorrido.ao.Hospital?` = factor(`Foi.socorrido.ao.Hospital?`,
+                                               levels = c("Não", "Sim", "SEM INFORMAÇÃO"),
+                                               labels = c("Não", "Sim", "SEM INFORMAÇÃO")))
+
+vitimas_foi_socorrido <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(`Foi.socorrido.ao.Hospital?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#• Região atingida (percentual)
+
+vitimas <- vitimas %>%
+  mutate_if(is.character, str_squish)
+
+vitimas_regiao_atingida <- vitimas %>%
+  select(starts_with("regiao_anatomica"))
+
+# Preparar loop
+regiao_atingida_0 <- data.frame(regiao_anatomica_atingida = vitimas_regiao_atingida[,1])
+regiao_atingida_0 <- regiao_atingida_0 %>%
+  count(regiao_anatomica_atingida)
+
+# Loop
+
+for (i in 2:6) {
+  
+  regiao_atingida <- data.frame(regiao_anatomica_atingida = vitimas_regiao_atingida[,i])
+  regiao_atingida <- regiao_atingida %>%
+    count(regiao_anatomica_atingida)
+  regiao_atingida_0 <- full_join(regiao_atingida_0, regiao_atingida, by = "regiao_anatomica_atingida")
+  
+}
+
+regiao_atingida_1 <- regiao_atingida_0 %>%
+  filter(!is.na(regiao_anatomica_atingida))
+
+vitimas_regiao_atingida <- data.frame(regiao_anatomica_atingida_1 = regiao_atingida_1[,1], Total = rowSums(regiao_atingida_1[,2:7], na.rm = TRUE))  
+
+vitimas_regiao_atingida <- vitimas_regiao_atingida %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+rm(regiao_atingida, regiao_atingida_0, regiao_atingida_1)
+
+#• Estava em posse de arma? (percentual)
+vitimas <- vitimas %>%
+  mutate(`Vítima.estava.de.posse.de.arma?` = ifelse(`Vítima.estava.de.posse.de.arma?` != "Sim", "Não", `Vítima.estava.de.posse.de.arma?`))
+
+
+vitimas_posse_arma <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(`Vítima.estava.de.posse.de.arma?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+#• Tipo e número de armas (percentual)
+vitimas_tipo_armas <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  summarize(across(starts_with("Tipo.e.número.de.armas"), as.numeric)) %>%
+  summarize_all(., sum) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 44, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#• Fez uso da arma? (percentual)
+vitimas <- vitimas %>%
+  mutate(`Vítima.fez.uso.da.arma?` = factor(`Vítima.fez.uso.da.arma?`,
+                                               levels = c("Não", "Sim", "NÃO SE APLICA"),
+                                               labels = c("Não", "Sim", "NÃO SE APLICA")))
+vitimas_fez_uso_arma <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL" & `Vítima.fez.uso.da.arma?` != "NÃO SE APLICA") %>%
+  count(`Vítima.fez.uso.da.arma?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+#• Causou dano? (percentual)
+vitimas_causou_dano <- vitimas %>%
+  mutate(Vítima.causou.dano = ifelse(`Número.do.REDS.(principal)` == "2017030982607001" & Nome.completo.da.vítima == "LUCAS SEBASTIAN DAVID SOARES VENUTIANO",
+                                     "Não", Vítima.causou.dano)) %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(Vítima.causou.dano, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  count(Vítima.causou.dano, `Vítima.fez.uso.da.arma?`,name = "Total")
+
+#• Tipo de dano (percentual)
+vitimas_tipo_dano_causado <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL" & Vítima.causou.dano == "Sim") %>%
+  count(Tipo.de.dano.causado.pela.vítima, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+vitimas_tipo_dano_causado_2 <- vitimas %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL" & Vítima.causou.dano == "Sim" &
+           Tipo.de.dano.causado.pela.vítima == "NÃO SE APLICA")
+
+write.xlsx(vitimas_tipo_dano_causado_2, "data/correção/vitimas_tipo_dano_causado.xlsx", asTable = FALSE)
+rm(vitimas_tipo_dano_causado_2)
+
+#> Corrigir de acordo com data/correção/vitimas_tipo_dano_causado_correcao.xlsx
+vitimas_tipo_dano_causado <- vitimas %>%
+  mutate(Vítima.causou.dano = ifelse(`Número.do.REDS.(principal)` == "2017030982607001" & Nome.completo.da.vítima == "LUCAS SEBASTIAN DAVID SOARES VENUTIANO",
+                                     "Não", Vítima.causou.dano)) %>%
+  filter(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL" & Vítima.causou.dano == "Sim") %>%
+  count(Tipo.de.dano.causado.pela.vítima, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+# * Escrever xlsx com o resultado da base Vítimas -------------------------
+
+## Create Workbook object and add worksheets
+wb_vitimas <- createWorkbook()
+
+## Add worksheets
+addWorksheet(wb_vitimas, "Sexo")
+addWorksheet(wb_vitimas, "Raça_Cor")
+addWorksheet(wb_vitimas, "Escolaridade")
+addWorksheet(wb_vitimas, "Idade")
+addWorksheet(wb_vitimas, "Tipo do dano sofrido")
+addWorksheet(wb_vitimas, "Regiao atingida")
+addWorksheet(wb_vitimas, "Foi socorrido")
+addWorksheet(wb_vitimas, "Posse de arma")
+addWorksheet(wb_vitimas, "Tipo de arma utilizada")
+addWorksheet(wb_vitimas, "Fez uso da arma")
+addWorksheet(wb_vitimas, "Causou dano")
+addWorksheet(wb_vitimas, "Tipo do dano causado")
+
+## Write data in worksheets
+writeData(wb_vitimas, "Sexo", 
+          vitimas_sexo)
+writeData(wb_vitimas, "Raça_Cor", 
+          vitimas_raca_cor)
+writeData(wb_vitimas, "Escolaridade", 
+          vitimas_escolaridade)
+writeData(wb_vitimas, "Idade", 
+          vitimas_idade)
+writeData(wb_vitimas, "Tipo do dano sofrido", 
+          vitimas_tipo_dano_sofrido)
+writeData(wb_vitimas, "Regiao atingida", 
+          vitimas_regiao_atingida)
+writeData(wb_vitimas, "Foi socorrido",
+          vitimas_foi_socorrido)
+writeData(wb_vitimas, "Posse de arma", 
+          vitimas_posse_arma)
+writeData(wb_vitimas, "Tipo de arma utilizada", 
+          vitimas_tipo_armas)
+writeData(wb_vitimas, "Fez uso da arma", 
+          vitimas_fez_uso_arma)
+writeData(wb_vitimas, "Causou dano", 
+          vitimas_causou_dano)
+writeData(wb_vitimas, "Tipo do dano causado", 
+          vitimas_tipo_dano_causado)
+
+## Header style
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb_vitimas, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 2, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 3, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 4, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 5, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 6, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 7, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 8, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 9, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 10, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 11, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_vitimas, sheet = 12, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+
+## Save xlsx
+saveWorkbook(wb_vitimas, "produtos/Perfil das Vítimas.xlsx", overwrite = TRUE)
+
+rm(list=ls(pattern="^vitimas_"))
+
+
+
+# Dinâmica das ocorrências de letalidade e vitimização policial --------
+
+#> Intervenções policiais (letais e não-letais) 
+#> Retirar Suicídios (suicídio e homicídio e suicídio), vitimização policial (letal e não-letal)
+
+
+# * Intervenções policiais ------------------------------------------------
+
+eventos %>%
+  count(Definição.básica.do.caso)
+
+`%!in%` <- Negate(`%in%`)
+intervencoes_policiais <- c("HOMICÍDIO E SUICÍDIO POLICIAL (Policial mata alguém e se suicida na sequência)",
+                            "SUICÍDIO POLICIAL (fato mais grave é o SUICÍDIO de policial)",
+                            "VITIMIZAÇÃO POLICIAL LETAL (fato mais grave é MORTE de policial)",
+                            "VITIMIZAÇÃO POLICIAL NÃO-LETAL (fato mais grave é FERIMENTO de policial)")
+
+
+#>Favela / não-favela Banco de eventos (percentual)
+eventos <- eventos %>%
+  mutate(`Local.é.aglomerado.subnormal.(favela)?` = factor(`Local.é.aglomerado.subnormal.(favela)?`,
+                                               levels = c("Não", "Sim", "SEM INFORMAÇÃO"),
+                                               labels = c("Não", "Sim", "SEM INFORMAÇÃO")))
+
+eventos_local_favela <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Local.é.aglomerado.subnormal.(favela)?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Tipo de local (via pública, etc.) Banco de eventos (percentual)
+eventos_tipo_de_local <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Tipo.de.Local, name = "Total")
+
+write.xlsx(eventos_tipo_de_local, "data/correção/eventos_tipo_local.xlsx", asTable = FALSE)
+
+#> Enviar e o Zilli recategoriza
+eventos_tipo_de_local_correcao <- read.xlsx("data/correção/eventos_tipo_local_correcao.xlsx")
+
+# Corrigir e analisar
+eventos_tipo_de_local <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  left_join(eventos_tipo_de_local_correcao, by = "Tipo.de.Local") %>%
+  mutate(Tipo.de.Local = Novo.Rótulo) %>%
+  count(Tipo.de.Local, name = "Total", sort = TRUE) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+rm(eventos_tipo_de_local_correcao)  
+
+#>Agentes de serviço ou de folga Banco de autores - policiais (percentual)
+eventos_agente_servico_folga <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Os.agentes.estavam.de.serviço?`, name = "Total", sort = TRUE) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+#>Unidades de área ou especializada (percentual) Banco de Autores - policiais - recodificar
+#> Agregar unidades da policia civil
+
+unidade_lotacao_agentes <- eventos %>%
+  count(`Unidade.de.Lotação.dos.agentes.(Instituição.1)`)
+
+write.xlsx(unidade_lotacao_agentes, "data/correção/unidades_lotacao_agentes.xlsx", asTable = FALSE)
+
+unidade_lotacao_agentes_correcao <- read.xlsx("data/correção/unidades_lotacao_agentes_correcao.xlsx")
+eventos <- eventos %>%
+  left_join(unidade_lotacao_agentes_correcao[, c(1,3)], by = "Unidade.de.Lotação.dos.agentes.(Instituição.1)")
+
+eventos_unidade_lotacao_agentes <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Nova.Nomenclatura, name = "Total", sort = TRUE)
+
+eventos_unidade_lotacao_pm <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Nova.Nomenclatura, name = "Total", sort = TRUE) %>%
+  filter(str_detect(Nova.Nomenclatura, "BPM") | 
+           str_detect(Nova.Nomenclatura, "BPE") |
+           str_detect(Nova.Nomenclatura, "ROTAM")) %>%
+  top_n(10) %>%
+  rename(`Unidade.de.Lotação.dos.agentes.(Instituição.1)` = Nova.Nomenclatura) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+eventos_unidade_lotacao_pc <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Nova.Nomenclatura, name = "Total", sort = TRUE) %>%
+  filter(str_detect(Nova.Nomenclatura, "DEL") | 
+           str_detect(Nova.Nomenclatura, "DIVISAO")) %>%
+  rename(`Unidade.de.Lotação.dos.agentes.(Instituição.1)` = Nova.Nomenclatura) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+rm(unidade_lotacao_agentes_correcao, unidade_lotacao_agentes)
+
+#> Nessa interessa o batalhão em si. 10 primeiras da PM e 5 da polícia civil.
+
+#>Tipo de atividade que desempenhavam antes da interação violenta Banco de eventos - (percentual)
+eventos_tipo_atividade <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta, name = "Total") %>%
+  mutate(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta = ifelse(Total < 3,
+                                                                                                                            "Outros", Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta)) %>%
+  group_by(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta) %>%
+  summarise(Total = sum(Total)) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+##> Transformar em outros todos depois de Outras atividades remuneradas("bico" ou atividade extra-policial)
+
+#>Fato que motivou a intervenção Banco de eventos - (percentual)
+eventos_fato_motivou <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = ifelse(str_detect(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, "INFORMA") | 
+                                                                                                 is.na(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`), "SEM INFORMAÇÃO", `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`),
+            `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = str_replace_all(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, " \\(marque \"não se aplica\" na questão 32 e vá para a questão 33\\)", "")) %>%
+  count(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`) %>%
+  mutate(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"` = ifelse(n < 3, "Outros", `Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`)) %>%
+  group_by(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`) %>%
+  summarise(Total = sum(n)) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+# Não houve/nenhum (marque "não se aplica" na questão 32 e vá para a questão 33)
+ 
+##>Crime que motivou a intervenção Banco de eventos - (percentual)
+eventos_crime_motivou <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & Crime.que.originou.a.intervenção.no.fato != "NÃO SE APLICA") %>%
+  mutate(Crime.que.originou.a.intervenção.no.fato = ifelse(str_detect(Crime.que.originou.a.intervenção.no.fato, "[:lower:]") |
+                                                             str_detect(Crime.que.originou.a.intervenção.no.fato, "[tentado$]") |
+                                                             str_detect(Crime.que.originou.a.intervenção.no.fato, "NÃO SE APLICA"),
+                                                           Crime.que.originou.a.intervenção.no.fato,
+                                                           "Outro"),
+         Crime.que.originou.a.intervenção.no.fato = ifelse(is.na(Crime.que.originou.a.intervenção.no.fato), "SEM INFORMAÇÃO", Crime.que.originou.a.intervenção.no.fato)) %>%
+  count(Crime.que.originou.a.intervenção.no.fato, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+#>Número de policiais envolvidos na ocorrência Banco de eventos - (média por ocorrência)
+eventos_policiais_envolvidos <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & `Número.total.de."POLICIAIS".envolvidos.na.ocorrência` == "1 - Número específico") %>%
+  mutate(Número.específico_4 = as.numeric(Número.específico_4)) %>%
+  summarise(`Mediana de policiais envolvidos` = median(Número.específico_4),
+            `Média de policiais envolvidos` = mean(Número.específico_4))
+
+#> Tira as ocorrências indefinidas e calcular pelas definidas
+
+#>Número de não-policiais vítimas na ocorrência Banco de vítimas – não policiais - (média por ocorrência)
+vitimas_nao_policiais_vitimas <- vitimas %>%
+  left_join(eventos[, c(3, 5)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  group_by(`Número.do.REDS.(principal)`) %>%
+  summarise(total = n()) %>%
+  summarise(`Média de não-policiais vítimas` = mean(total),
+            `Mediana de não-policiais vítimas` = median(total))
+  
+#>Média de disparos de policiais - Banco de eventos - (média por ocorrência)
+eventos_numero_projeteis_disparados_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"` = as.numeric(str_replace_all(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, "[:^digit:]", ""))) %>%
+  summarise(`Média de projéteis disparados por policiais` = mean(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, na.rm = TRUE),
+            `Mediana de projéteis disparados por policiais` = median(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, na.rm = TRUE))
+
+#> Falar do total de disparos por policias e não policiais
+
+##>Média de disparos de não-policiais - Banco de eventos - (média por ocorrência)
+eventos_numero_projeteis_disparados_nao_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"` = as.numeric(str_replace_all(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, "[:^digit:]", ""))) %>%
+  summarise(`Média de projéteis disparados por não-policiais` = mean(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, na.rm = TRUE),
+            `Mediana de projéteis disparados por não-policiais` = median(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, na.rm = TRUE))
+
+
+#>Não-policiais estavam armados? - Banco de eventos (percentual)
+eventos_nao_policiais_posse_arma <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".estavam.de.posse.de.armas.de.fogo?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Não-policiais realizaram disparos? - Banco de eventos (percentual)
+eventos <- eventos %>%
+  mutate(`Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?` = ifelse(`Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?` == "Não (Vá para a questão 37)",
+                                                                                                         "Não", `Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?`),
+         `Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?` = factor(`Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?`,
+                                                                                                         labels = c("Não", "Sim", "NÃO SE APLICA"),
+                                                                                                         levels = c("Não", "Sim", "NÃO SE APLICA")))
+
+eventos_realizaram_disparos_nao_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & 
+           `Na.ocorrência.em.questão,.os."NÃO-POLICIAIS".estavam.de.posse.de.armas.de.fogo?` == "Sim") %>%
+  count(`Na.ocorrência.em.questão,.os.\"NÃO-POLICIAIS\".realizaram.disparos.de.armas.de.fogo?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+# Filtrei para os casos em que havia posse de arma de fogo
+
+#>Houve apreensão de armas - Banco de eventos (percentual)
+eventos_apreensao_armas <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Houve.apreensão.de.armas.com."NÃO-POLICIAIS"?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Tipos e quantidade de armas com policiais - Banco de eventos (percentual)
+eventos_tipo_numero_armas_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  mutate(`Tipos.e.número.de.armas.utilizadas.por."POLICIAIS".[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` == "2015015566258001", 0, `Tipos.e.número.de.armas.utilizadas.por."POLICIAIS".[Garrucha./.revólver.artesanal]`)) %>%
+  summarize(across(starts_with("Tipos.e.número.de.armas.utilizadas.por.\"POLICIAIS\""), as.numeric)) %>%
+  summarize_all(., sum, na.rm = TRUE) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 53, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+
+#>Tipos e quantidade de armas com não-policiais - Banco de eventos (percentual)
+eventos_tipo_numero_armas_nao_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  summarize(across(starts_with("Tipos.e.número.de.armas.de.\"NÃO-POLICIAIS\""), as.numeric)) %>%
+  summarize_all(., sum, na.rm = TRUE) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 57, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#>Houve socorro às vítimas - Banco de eventos (percentual)
+eventos_socorro_vitimas <- eventos %>%
+  mutate(`Houve.socorro.à(s).vítima(s)?` = ifelse(`Houve.socorro.à(s).vítima(s)?` == "Não (marque \"NÃO SE APLICA na questão 40)",
+                                                  "Não", `Houve.socorro.à(s).vítima(s)?`),
+         `Houve.socorro.à(s).vítima(s)?` = ifelse(`Houve.socorro.à(s).vítima(s)?` == "SEM INFORMAÇÃO (marque \"NÃO SE APLICA na questão 40)",
+                                                  "SEM INFORMAÇÃO", `Houve.socorro.à(s).vítima(s)?`),
+         `Houve.socorro.à(s).vítima(s)?` = factor(`Houve.socorro.à(s).vítima(s)?`, 
+                                                  labels = c("Não", "Sim", "SEM INFORMAÇÃO"),
+                                                  levels = c("Não", "Sim", "SEM INFORMAÇÃO"))) %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Houve.socorro.à(s).vítima(s)?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+  
+#>Socorro prestado por quem - Banco de eventos (percentual)
+eventos_socorro_prestado_quem <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & `Socorro.foi.prestado.por.quem?` != "NÃO SE APLICA") %>%
+  count(`Socorro.foi.prestado.por.quem?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Foi efetuada prisão ou apreensão - Banco de eventos (percentual)
+eventos_prisao <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(`Foi efetuada alguma prisão e/ou apreensão?` = ifelse(`Foi.efetuada.alguma.prisão.(maior.de.idade)?` == "Sim" |
+                                                                  `Foi.efetuada.alguma.apreensão.(menor.de.idade)?` == "Sim", "Sim", "Não")) %>%
+  count(`Foi efetuada alguma prisão e/ou apreensão?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+  
+##>Houve apreensão de drogas? - Banco de eventos (percentual)
+eventos_apreensao_drogas <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(Houve.apreensão.de.drogas, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Eventos testemunha
+eventos_testemunhas <- eventos %>%
+  mutate(`Número.total.de."POLICIAIS".arrolados.como.testemunhas` = as.numeric(`Número.total.de."POLICIAIS".arrolados.como.testemunhas`),
+         `Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas` = as.numeric(`Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas`),
+         `Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas` = ifelse(`Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas` == 70, 7, `Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas`)) %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  summarise(`Eventos com testemunhas` = sum(`Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas` > 0 | `Número.total.de."POLICIAIS".arrolados.como.testemunhas` > 0),
+            `Eventos sem testemunhas` = sum(`Número.total.de."NÃO-POLICIAIS".arrolados.como.testemunhas` == 0 & `Número.total.de."POLICIAIS".arrolados.como.testemunhas` == 0),
+            `Proporção de eventos com testemunhas` = `Eventos com testemunhas` / (`Eventos com testemunhas` + `Eventos sem testemunhas`) * 100,
+            `Proporção de eventos com testemunha policial` = sum(`Número.total.de.\"POLICIAIS\".arrolados.como.testemunhas` > 0) / (`Eventos com testemunhas` + `Eventos sem testemunhas`) * 100,
+            `Proporção de eventos com testemunha não-policial` = sum(`Número.total.de.\"NÃO-POLICIAIS\".arrolados.como.testemunhas` > 0) / (`Eventos com testemunhas` + `Eventos sem testemunhas`) * 100,
+            `Mediana de não-policiais testemunhas` = median(`Número.total.de.\"NÃO-POLICIAIS\".arrolados.como.testemunhas`),
+            `Média de não-policiais testemunhas` = mean(`Número.total.de.\"NÃO-POLICIAIS\".arrolados.como.testemunhas`, na.rm = TRUE),
+            `Mediana de policiais testemunhas` = median(`Número.total.de.\"POLICIAIS\".arrolados.como.testemunhas`, na.rm = TRUE),
+            `Média de policiais testemunhas` = mean(`Número.total.de.\"POLICIAIS\".arrolados.como.testemunhas`, na.rm = TRUE))
+
+#> FAZER UMA GERAL DAS TESTEMUNHAS. PEGAR ESTE CASOS EM QUE HOUVE TESTEMUNHA E FALAR A PROPORÇÃO DE POLICIAIS E NÃO POLICIAIS ENTRE ELES
+
+#> Falar do que seria uma ocorrência típica. Pensar.
+
+##> Mudar a de 70 para 7
+
+#>Houve acionamento de perícia? - Banco de eventos (percentual)
+eventos_pericia_acionamento <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  count(`Houve.acionamento.de.perícia.técnica?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Perícia compareceu? - Banco de eventos (ocorrências em que houve acionamento) (percentual)
+eventos_pericia_comparecimento <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & `Houve.acionamento.de.perícia.técnica?` == "Sim") %>%
+  count(`Perícia.Técnica.compareceu.ao.local?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Motivo de não comparecimento - Banco de eventos (ocorrências em que houve acionamento e não compareceu) (percentual)
+eventos_pericia_nao_comparecimento <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais & `Houve.acionamento.de.perícia.técnica?` == "Sim" & `Perícia.Técnica.compareceu.ao.local?` == "Não") %>%
+  count(`Se.perícia.NÃO.COMPARECEU,.qual.foi.o.motivo?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+# Porquê tanto não se aplica? -> Testar com novo filtro
+
+#>Comparativo: data e hora do fato / data e hora do registro - Banco de eventos (tempo médio)
+eventos_comparativo_data_hora <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  mutate(data_hora_fato = as.POSIXct(paste(Data.do.Fato, Hora.do.Fato), format="%Y-%m-%d %H:%M:%S"),
+         data_hora_registro = as.POSIXct(paste(Data.do.Registro.do.REDS, Hora.do.Registro.do.REDS), format="%Y-%m-%d %H:%M:%S"),
+         diff_tempo_fato_registro = difftime(data_hora_registro, data_hora_fato, units = "secs"),
+         diff_tempo_fato_registro_2 = as.period(diff_tempo_fato_registro, unit = "secs")) %>%
+  summarise(`Média da diferença do tempo entre o fato e o registro do mesmo` = as.period(mean(diff_tempo_fato_registro), unit = "secs"),
+            `Médiana da diferença do tempo entre o fato e o registro do mesmo` = as.period(median(diff_tempo_fato_registro), unit = "secs"))
+
+#> Data da semana
+eventos_dia_semana <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(`Dia da semana do fato` = wday(Data.do.Fato, label = TRUE)) %>%
+  count(`Dia da semana do fato`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Hora do dia
+eventos_faixa_hora <- eventos %>%
+  filter(Definição.básica.do.caso %!in% intervencoes_policiais) %>%
+  transmute(Hora.do.Fato = hms::as_hms(Hora.do.Fato),
+            `Faixa de hora do fato` = case_when(Hora.do.Fato < hms::as_hms('06:00:00') ~ 'Madrugada',
+                                                Hora.do.Fato %in% c(hms::as_hms('06:00:00'):hms::as_hms('11:59:00')) ~ 'Manhã',
+                                                Hora.do.Fato %in% c(hms::as_hms('12:00:00'):hms::as_hms('17:59:00')) ~ 'Tarde',
+                                                Hora.do.Fato >= hms::as_hms('18:00:00') ~ 'Noite'),
+            `Faixa de hora do fato` = factor(`Faixa de hora do fato`, label = c('Madrugada', 'Manhã', 'Tarde', 'Noite'),
+                                             levels = c('Madrugada', 'Manhã', 'Tarde', 'Noite'))) %>%
+  count(`Faixa de hora do fato`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+# * * Escrever xlsx com o resultado da 1 Parte ----------------------------
+## Create Workbook object and add worksheets
+wb_eventos <- createWorkbook()
+
+## Add worksheets
+addWorksheet(wb_eventos, "Favela ou nao favela")
+addWorksheet(wb_eventos, "Tipo de local")
+addWorksheet(wb_eventos, "Agente Servico ou Folga")
+addWorksheet(wb_eventos, "Rank unidade PM")
+addWorksheet(wb_eventos, "Rank unidade PC")
+addWorksheet(wb_eventos, "Tipo de atividade")
+addWorksheet(wb_eventos, "Fato que motivou")
+addWorksheet(wb_eventos, "Crime que motivou")
+addWorksheet(wb_eventos, "Num pol envolvidos")
+addWorksheet(wb_eventos, "Num nao pol vitimas")
+addWorksheet(wb_eventos, "Disparos - pol")
+addWorksheet(wb_eventos, "Disparos - nao pol")
+addWorksheet(wb_eventos, "Nao pol armados")
+addWorksheet(wb_eventos, "Nao pol disparos")
+addWorksheet(wb_eventos, "Apreensao armas")
+addWorksheet(wb_eventos, "Num armas pol")
+addWorksheet(wb_eventos, "Num armas nao pol")
+addWorksheet(wb_eventos, "Socorro vitimas")
+addWorksheet(wb_eventos, "Quem socorreu")
+addWorksheet(wb_eventos, "Prisao ou apreensao")
+addWorksheet(wb_eventos, "Apreensao Drogas")
+addWorksheet(wb_eventos, "Testemunhas")
+addWorksheet(wb_eventos, "Pericia - Acionamento")
+addWorksheet(wb_eventos, "Pericia - Comparecimento")
+addWorksheet(wb_eventos, "Pericia - Motivo")
+addWorksheet(wb_eventos, "Tempo Fato-Registro")
+addWorksheet(wb_eventos, "Dia da semana")
+addWorksheet(wb_eventos, "Hora do fato")
+
+## Write data in worksheets
+writeData(wb_eventos, "Favela ou nao favela", eventos_local_favela)
+writeData(wb_eventos, "Tipo de local", eventos_tipo_de_local)
+writeData(wb_eventos, "Agente Servico ou Folga", eventos_agente_servico_folga)
+writeData(wb_eventos, "Rank unidade PM", eventos_unidade_lotacao_pm)
+writeData(wb_eventos, "Rank unidade PC", eventos_unidade_lotacao_pc)
+writeData(wb_eventos, "Tipo de atividade", eventos_tipo_atividade)
+writeData(wb_eventos, "Fato que motivou", eventos_fato_motivou)
+writeData(wb_eventos, "Crime que motivou", eventos_crime_motivou)
+writeData(wb_eventos, "Num pol envolvidos", eventos_policiais_envolvidos)
+writeData(wb_eventos, "Num nao pol vitimas", vitimas_nao_policiais_vitimas)
+writeData(wb_eventos, "Disparos - pol", eventos_numero_projeteis_disparados_policiais)
+writeData(wb_eventos, "Disparos - nao pol", eventos_numero_projeteis_disparados_nao_policiais)
+writeData(wb_eventos, "Nao pol armados", eventos_nao_policiais_posse_arma)
+writeData(wb_eventos, "Nao pol disparos", eventos_numero_projeteis_disparados_nao_policiais)
+writeData(wb_eventos, "Apreensao armas", eventos_apreensao_armas)
+writeData(wb_eventos, "Num armas pol", eventos_tipo_numero_armas_policiais)
+writeData(wb_eventos, "Num armas nao pol", eventos_tipo_numero_armas_nao_policiais)
+writeData(wb_eventos, "Socorro vitimas", eventos_socorro_vitimas)
+writeData(wb_eventos, "Quem socorreu", eventos_socorro_prestado_quem)
+writeData(wb_eventos, "Prisao ou apreensao", eventos_prisao)
+writeData(wb_eventos, "Apreensao Drogas", eventos_apreensao_drogas)
+writeData(wb_eventos, "Testemunhas", eventos_testemunhas)
+writeData(wb_eventos, "Pericia - Acionamento", eventos_pericia_acionamento)
+writeData(wb_eventos, "Pericia - Comparecimento", eventos_pericia_comparecimento)
+writeData(wb_eventos, "Pericia - Motivo", eventos_pericia_nao_comparecimento)
+writeData(wb_eventos, "Tempo Fato-Registro", eventos_comparativo_data_hora)
+writeData(wb_eventos, "Dia da semana", eventos_dia_semana)
+writeData(wb_eventos, "Hora do fato", eventos_faixa_hora)
+
+## Header style
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb_eventos, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 2, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 3, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 4, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 5, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 6, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 7, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 8, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 9, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 10, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 11, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 12, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 13, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 14, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 15, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 16, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 17, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 18, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 19, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 20, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 21, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 22, headerStyle, rows = 1, cols = 1:9, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 23, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 24, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 25, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 26, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 27, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 28, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+
+## Save xlsx
+saveWorkbook(wb_eventos, "produtos/Dinâmica - Intervenções policiais.xlsx", overwrite = TRUE)
+
+rm(list=ls(pattern="^vitimas_"))
+rm(list=ls(pattern="^eventos_"))
+
+
+# * Vitimização Policial --------------------------------------------------------
+
+vitimizacao_policial <- c("HOMICÍDIO E SUICÍDIO POLICIAL (Policial mata alguém e se suicida na sequência)",
+                          "SUICÍDIO POLICIAL (fato mais grave é o SUICÍDIO de policial)",
+                          "INTERVENÇÃO POLICIAL NÃO-LETAL (fato mais grave é FERIMENTO decorrente de intervenção policial)",
+                          "LETALIDADE POLICIAL (fato mais grave é MORTE decorrente de intervenção policial)")
+
+#>Favela / não-favela Banco de eventos (percentual)
+eventos_local_favela <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  count(`Local.é.aglomerado.subnormal.(favela)?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Tipo de local (via pública, etc.) Banco de eventos (percentual)
+eventos_tipo_de_local_correcao <- read.xlsx("data/correção/eventos_tipo_local_correcao.xlsx")
+
+# Corrigir e analisar
+eventos_tipo_de_local <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  left_join(eventos_tipo_de_local_correcao, by = "Tipo.de.Local") %>%
+  mutate(Tipo.de.Local = Novo.Rótulo,
+         Tipo.de.Local = ifelse(is.na(Tipo.de.Local), "NÃO INFORMADO/NÃO IDENTIFICADO", Tipo.de.Local)) %>%
+  count(Tipo.de.Local, name = "Total", sort = TRUE) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+rm(eventos_tipo_de_local_correcao)  
+
+#>Agente de servico ou em folga
+eventos_agente_servico_folga <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  count(`Os.agentes.estavam.de.serviço?`, name = "Total", sort = TRUE) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Tipo de atividade que desempenhavam antes da interação violenta Banco de eventos - (percentual)
+eventos_tipo_atividade <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  mutate(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta = ifelse(str_detect(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta, 
+                                                                                                                                       "[:lower:]") |
+                                                                                                                              Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta == "SEM INFORMAÇÃO",
+                                                                                                                            Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta,
+                                                                                                                            "Outros"
+                                                                                                                              )) %>%
+  count(Tipo.de.trabalho.ou.ação.que.os.policiais.desempenhavam.imediatamente.antes.de.haver.a.interação.violenta, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Fato que motivou a intervenção Banco de eventos - (percentual)
+eventos_fato_motivou <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = ifelse(str_detect(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, "INFORMA") | 
+                                                                                                 is.na(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`), "SEM INFORMAÇÃO", `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`),
+            `Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"` = ifelse(str_detect(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`, "[:lower:]") |
+                                                                                               `Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"` == "SEM INFORMAÇÃO",
+                                                                                             `Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`, "Outros"),
+            `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = str_replace_all(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, " \\(marque \"não se aplica\" na questão 32 e vá para a questão 33\\)", "")) %>%
+  count(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+##>Crime que motivou a intervenção Banco de eventos - (percentual)
+eventos_crime_motivou <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial & Crime.que.originou.a.intervenção.no.fato != "NÃO SE APLICA") %>%
+  mutate(Crime.que.originou.a.intervenção.no.fato = ifelse(str_detect(Crime.que.originou.a.intervenção.no.fato, "[:lower:]") |
+                                                             str_detect(Crime.que.originou.a.intervenção.no.fato, "[tentado$]") |
+                                                             str_detect(Crime.que.originou.a.intervenção.no.fato, "NÃO SE APLICA"),
+                                                           Crime.que.originou.a.intervenção.no.fato,
+                                                           "Outro"),
+         Crime.que.originou.a.intervenção.no.fato = ifelse(is.na(Crime.que.originou.a.intervenção.no.fato), "SEM INFORMAÇÃO", Crime.que.originou.a.intervenção.no.fato)) %>%
+  count(Crime.que.originou.a.intervenção.no.fato, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+
+#>Número de policiais envolvidos na ocorrência Banco de eventos - (média por ocorrência)
+eventos_policiais_envolvidos <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial & `Número.total.de."POLICIAIS".envolvidos.na.ocorrência` == "1 - Número específico") %>%
+  mutate(Número.específico_4 = as.numeric(Número.específico_4)) %>%
+  summarise(`Mediana de policiais envolvidos` = median(Número.específico_4),
+            `Média de policiais envolvidos` = mean(Número.específico_4))
+
+#> Tira as ocorrências indefinidas e calcular pelas definidas
+
+#>Número de não-policiais vítimas na ocorrência Banco de vítimas – não policiais - (média por ocorrência)
+vitimas_nao_policiais_vitimas <- vitimas %>%
+  left_join(eventos[, c(3, 5)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  group_by(`Número.do.REDS.(principal)`) %>%
+  summarise(total = n()) %>%
+  summarise(`Média de não-policiais vítimas` = mean(total),
+            `Mediana de não-policiais vítimas` = median(total))
+
+#>Média de disparos de policiais - Banco de eventos - (média por ocorrência)
+eventos_numero_projeteis_disparados_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"` = as.numeric(str_replace_all(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, "[:^digit:]", ""))) %>%
+  summarise(`Média de projéteis disparados por policiais` = mean(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, na.rm = TRUE),
+            `Mediana de projéteis disparados por policiais` = median(`Número.total.de.projéteis.disparados.pelas.armas.dos."POLICIAIS"`, na.rm = TRUE))
+
+#> Falar do total de disparos por policias e não policiais
+
+##>Média de disparos de não-policiais - Banco de eventos - (média por ocorrência)
+eventos_numero_projeteis_disparados_nao_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"` = as.numeric(str_replace_all(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, "[:^digit:]", ""))) %>%
+  summarise(`Média de projéteis disparados por não-policiais` = mean(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, na.rm = TRUE),
+            `Mediana de projéteis disparados por não-policiais` = median(`Quantidade.total.de.disparos.efetuados.por."NÃO-POLICIAIS"`, na.rm = TRUE))
+
+#>Houve apreensão de armas - Banco de eventos (percentual)
+eventos_apreensao_armas <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  count(`Houve.apreensão.de.armas.com."NÃO-POLICIAIS"?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#>Tipos e quantidade de armas com policiais - Banco de eventos (percentual)
+eventos_tipo_numero_armas_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  mutate(`Tipos.e.número.de.armas.utilizadas.por."POLICIAIS".[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` %in% c("2015015566258001", "2015020057272001"), 0, `Tipos.e.número.de.armas.utilizadas.por."POLICIAIS".[Garrucha./.revólver.artesanal]`)) %>%
+  summarize(across(starts_with("Tipos.e.número.de.armas.utilizadas.por.\"POLICIAIS\""), as.numeric)) %>%
+  summarize_all(., sum, na.rm = TRUE) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 53, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+
+#>Tipos e quantidade de armas com não-policiais - Banco de eventos (percentual)
+eventos_tipo_numero_armas_nao_policiais <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  summarize(across(starts_with("Tipos.e.número.de.armas.de.\"NÃO-POLICIAIS\""), as.numeric)) %>%
+  summarize_all(., sum, na.rm = TRUE) %>%
+  gather(key = "Tipo de arma", value = "Total") %>%
+  mutate(`Tipo de arma` = str_sub(`Tipo de arma`, 57, -2),
+         `Tipo de arma` = str_replace_all(`Tipo de arma`, "\\.", " ")) %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total")))
+
+#> Houve prisao/apreensão?
+eventos_prisao_apreensao <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(`Foi efetuada alguma prisão e/ou apreensão?` = ifelse(`Foi.efetuada.alguma.prisão.(maior.de.idade)?` == "Sim" |
+                                                                    `Foi.efetuada.alguma.apreensão.(menor.de.idade)?` == "Sim", "Sim", "Não")) %>%
+  count(`Foi efetuada alguma prisão e/ou apreensão?`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Data da semana
+eventos_dia_semana <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(`Dia da semana do fato` = wday(Data.do.Fato, label = TRUE)) %>%
+  count(`Dia da semana do fato`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Hora do dia
+eventos_faixa_hora <- eventos %>%
+  filter(Definição.básica.do.caso %!in% vitimizacao_policial) %>%
+  transmute(Hora.do.Fato = hms::as_hms(Hora.do.Fato),
+            `Faixa de hora do fato` = case_when(Hora.do.Fato < hms::as_hms('06:00:00') ~ 'Madrugada',
+                                                Hora.do.Fato %in% c(hms::as_hms('06:00:00'):hms::as_hms('11:59:00')) ~ 'Manhã',
+                                                Hora.do.Fato %in% c(hms::as_hms('12:00:00'):hms::as_hms('17:59:00')) ~ 'Tarde',
+                                                Hora.do.Fato >= hms::as_hms('18:00:00') ~ 'Noite'),
+            `Faixa de hora do fato` = factor(`Faixa de hora do fato`, label = c('Madrugada', 'Manhã', 'Tarde', 'Noite'),
+                                             levels = c('Madrugada', 'Manhã', 'Tarde', 'Noite'))) %>%
+  count(`Faixa de hora do fato`, name = "Total") %>%
+  mutate(total = sum(Total),
+         Percentual = round(Total / total * 100, digits = 2)) %>%
+  select(-total) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.factor), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#Como faixa horária,:
+#1- Manhã: 6h às 11h59
+#2- Tarde 12h às 17h59
+#3- Noite: 18h às 23h59
+#4- Madrugada: 0h às 5h59
+
+
+# * * Escrever xlsx com o resultado da 1 Parte ----------------------------
+## Create Workbook object and add worksheets
+wb_eventos <- createWorkbook()
+
+## Add worksheets
+addWorksheet(wb_eventos, "Favela ou nao favela")
+addWorksheet(wb_eventos, "Tipo de local")
+addWorksheet(wb_eventos, "Agente Servico ou Folga")
+addWorksheet(wb_eventos, "Tipo de atividade")
+addWorksheet(wb_eventos, "Fato que motivou")
+addWorksheet(wb_eventos, "Crime que motivou")
+addWorksheet(wb_eventos, "Num pol envolvidos")
+addWorksheet(wb_eventos, "Num nao pol vitimas")
+addWorksheet(wb_eventos, "Disparos - pol")
+addWorksheet(wb_eventos, "Disparos - nao pol")
+addWorksheet(wb_eventos, "Apreensao armas")
+addWorksheet(wb_eventos, "Num armas pol")
+addWorksheet(wb_eventos, "Num armas nao pol")
+addWorksheet(wb_eventos, "Prisao ou apreensao")
+addWorksheet(wb_eventos, "Dia da semana")
+addWorksheet(wb_eventos, "Hora do fato")
+
+## Write data in worksheets
+writeData(wb_eventos, "Favela ou nao favela", eventos_local_favela)
+writeData(wb_eventos, "Tipo de local", eventos_tipo_de_local)
+writeData(wb_eventos, "Agente Servico ou Folga", eventos_agente_servico_folga)
+writeData(wb_eventos, "Tipo de atividade", eventos_tipo_atividade)
+writeData(wb_eventos, "Fato que motivou", eventos_fato_motivou)
+writeData(wb_eventos, "Crime que motivou", eventos_crime_motivou)
+writeData(wb_eventos, "Num pol envolvidos", eventos_policiais_envolvidos)
+writeData(wb_eventos, "Num nao pol vitimas", vitimas_nao_policiais_vitimas)
+writeData(wb_eventos, "Disparos - pol", eventos_numero_projeteis_disparados_policiais)
+writeData(wb_eventos, "Disparos - nao pol", eventos_numero_projeteis_disparados_nao_policiais)
+writeData(wb_eventos, "Apreensao armas", eventos_apreensao_armas)
+writeData(wb_eventos, "Num armas pol", eventos_tipo_numero_armas_policiais)
+writeData(wb_eventos, "Num armas nao pol", eventos_tipo_numero_armas_nao_policiais)
+writeData(wb_eventos, "Prisao ou apreensao", eventos_prisao_apreensao)
+writeData(wb_eventos, "Dia da semana", eventos_dia_semana)
+writeData(wb_eventos, "Hora do fato", eventos_faixa_hora)
+
+
+## Header style
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb_eventos, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 2, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 3, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 4, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 5, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 6, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 7, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 8, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 9, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 10, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 11, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 12, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 13, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 14, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 15, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_eventos, sheet = 16, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+
+## Save xlsx
+saveWorkbook(wb_eventos, "produtos/Dinâmica - Vitimização Policial.xlsx", overwrite = TRUE)
+
+rm(list=ls(pattern="^vitimas_"))
+rm(list=ls(pattern="^eventos_"))
+
+
+# Dimensão da Letalidade e da Vitimização Policial em Minas Gerais --------
+
+filtro_dimensao <- c("SUICÍDIO POLICIAL (fato mais grave é o SUICÍDIO de policial)",
+                     "HOMICÍDIO E SUICÍDIO POLICIAL (Policial mata alguém e se suicida na sequência)")
+
+#> Mortos pela polícia e policiais mortos entre 2013 e 2018
+vitimas_mortos <- vitimas %>%
+  left_join(eventos[, c(3, 5)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao) %>%
+  group_by(Ano.do.Fato) %>%
+  summarise(`Mortos pela polícia` = sum(Tipo.de.dano.sofrido == "Morto" & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL"),
+            `Policiais mortos` = sum(Tipo.de.dano.sofrido == "Morto" & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "POLICIAL" & Definição.básica.do.caso %!in% filtro_dimensao)) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Feridos pela polícia e policiais feridos entre 2013 e 2018
+vitimas_feridos <- vitimas %>%
+  left_join(eventos[, c(3, 5)], by = "Número.do.REDS.(principal)") %>%
+  group_by(Ano.do.Fato) %>%
+  summarise(`Feridos pela polícia` = sum(Tipo.de.dano.sofrido == "Ferido" & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL"),
+            `Policiais Feridos` = sum(Tipo.de.dano.sofrido == "Ferido" & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "POLICIAL" & Definição.básica.do.caso %!in% filtro_dimensao)) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Cidadãos mortos e feridos em intervenções policiais, por instituição, entre 2013 e 2018 (PM, PC, Outras)
+eventos <- eventos %>%
+  mutate(Nova.Nomenclatura_2 = case_when(str_detect(Nova.Nomenclatura, "BPM") | 
+                                           str_detect(Nova.Nomenclatura, "BPE") |
+                                           str_detect(Nova.Nomenclatura, "ROTAM") |
+                                           str_detect(Nova.Nomenclatura, "CIA PM") |
+                                           str_detect(Nova.Nomenclatura, "BPCHQ") |
+                                           str_detect(Nova.Nomenclatura, "Outra unidade PMMG") ~ "PM",
+                                         str_detect(Nova.Nomenclatura, "DEL") | 
+                                           str_detect(Nova.Nomenclatura, "DIVISAO") |
+                                           str_detect(Nova.Nomenclatura, "Outra unidade PCMG") ~ "PC",
+                                         str_detect(Nova.Nomenclatura, "Unidade CBMMG") |
+                                           str_detect(Nova.Nomenclatura, "BPTRAN") |
+                                           str_detect(Nova.Nomenclatura, "BPGD") |
+                                           str_detect(Nova.Nomenclatura, "Unidade Prisional") ~ "Outras",
+                                         Nova.Nomenclatura == "SEM INFORMAÇÃO" ~ "SEM INFORMAÇÃO"
+                                         ))
+
+vitimas_mortos_e_feridos <- vitimas %>%
+  left_join(eventos[, c(3, 5, 85)], by = "Número.do.REDS.(principal)") %>%
+  group_by(Nova.Nomenclatura_2, Ano.do.Fato, Tipo.de.dano.sofrido) %>%
+  summarise(Total = sum(`Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL")) %>%
+  pivot_wider(names_from = Nova.Nomenclatura_2, values_from = Total) %>%
+  select(Ano.do.Fato, Tipo.de.dano.sofrido, PM, PC, Outras, `SEM INFORMAÇÃO`) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+  
+vitimas_mortos_e_feridos[is.na(vitimas_mortos_e_feridos)] <- 0
+
+#> Policiais mortos e feridos, por instituição, entre 2013 e 2018
+vitimas_policiais_mortos_e_feridos <- vitimas %>%
+  left_join(eventos[, c(3, 5, 85)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "POLICIAL") %>%
+  group_by(Ano.do.Fato, Tipo.de.vítima, Tipo.de.dano.sofrido) %>%
+  summarise(Total = n()) %>%
+  pivot_wider(names_from = Tipo.de.vítima, values_from = Total) %>%
+  ungroup() %>%
+  group_by(Tipo.de.dano.sofrido) %>%
+  bind_rows(summarise(.,
+                      across(where(is.numeric), sum, na.rm = TRUE),
+                      across(where(is.character), ~"Total"))) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE)) %>%
+  rename("Sem Informação" = "Não-Policial")
+
+vitimas_policiais_mortos_e_feridos[is.na(vitimas_policiais_mortos_e_feridos)] <- 0
+   
+#> Taxas de Letalidade Policial em Minas Gerais entre 2013 e 2018
+
+#> Ler base de dados homicídio
+homicidios_mg <- read_xlsx("data/Dados Letalidade.xlsx", range = "C15:I17")
+homicidios_mg <- homicidios_mg[1,]
+homicidios_mg[1,1] <- homicidios_mg[1,1] <- "MG"
+homicidios_mg <- rename(homicidios_mg,  "UF" = "...1")
+homicidios_mg <- homicidios_mg %>%
+  pivot_longer(!UF, names_to = "Ano", values_to = "Número de homicídios em MG") %>%
+  select(-UF)
+
+#> Ler base de dados pop mg
+pop_mg <- read_xlsx("data/pop_mg.xlsx", range = "A4:G6")
+pop_mg <- pop_mg[2,]
+pop_mg <- pop_mg %>%
+  rename("UF" = "...1") %>%
+  pivot_longer(!UF, names_to = "Ano", values_to = "População Total de MG") %>%
+  select(-UF)
+
+#> Calculo
+vitimas_taxa_letalidade <- vitimas %>%
+  left_join(eventos[, c(3, 5, 85)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  group_by(Ano.do.Fato) %>%
+  summarise(Total = sum(Tipo.de.dano.sofrido == "Morto")) %>%
+  left_join(homicidios_mg, by = c("Ano.do.Fato" = "Ano"), suffix = c("", "_2")) %>%
+  left_join(pop_mg, by = c("Ano.do.Fato" = "Ano")) %>%
+  mutate(`Percentual de mortos pela polícia em relação ao total de homicídios em MG` = Total / (`Número de homicídios em MG`) * 100,
+         `Taxa de Letalidade Policial por 100 mil hab` = Total / `População Total de MG` * 100000) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE)) %>%
+  rename("Total de mortos pela polícia" = "Total")
+
+#> Taxas de Vitimização Policial em Minas Gerais entre 2013 e 2018
+policiais_mg <- read_xlsx("data/Dados Letalidade.xlsx", range = "C21:I22")
+policiais_mg <- rename(policiais_mg, "UF" = "...1")
+policiais_mg <- policiais_mg %>%
+  pivot_longer(!UF, names_to = "Ano", values_to = "Total de policiais em MG") %>%
+  select(-UF)
+
+vitimas_taxa_mortalidade_policial <- vitimas %>%
+  left_join(eventos[, c(3, 5, 85)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "POLICIAL") %>%
+  group_by(Ano.do.Fato) %>%
+  summarise(Total = sum(Tipo.de.dano.sofrido == "Morto")) %>%
+  left_join(policiais_mg, by = c("Ano.do.Fato" = "Ano"), suffix = c("", "_2")) %>%
+  left_join(homicidios_mg, by = c("Ano.do.Fato" = "Ano"), suffix = c("", "_2")) %>%
+  mutate(`Percentual policiais mortos em relação ao total de homicídios em MG` = Total / (`Número de homicídios em MG`) * 100,
+         `Taxa de Vitimização Policial por 100 mil policiais em MG` = Total / `Total de policiais em MG` * 100000) %>%
+  rename("Total de policiais vítimas de homicídio" = "Total") %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#Taxas de Letalidade e de Vitimização Policial em Minas Gerais entre 2013 e 2018 (razão mortos/feridos)
+
+vitimas_razao_mortos_feridos <- vitimas %>%
+  left_join(eventos[, c(3, 5, 85)], by = "Número.do.REDS.(principal)") %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao & `Vítima.é."POLICIAL".ou."NÃO-POLICIAL"` == "NÃO-POLICIAL") %>%
+  group_by(Ano.do.Fato) %>%
+  summarise(`Total de mortos em confronto com a polícia` = sum(Tipo.de.dano.sofrido == "Morto"),
+            `Total de feridos em confronto com a polícia` = sum(Tipo.de.dano.sofrido == "Ferido"),
+            `Percentual de mortos do total de vitimados em confronto com a polícia` = sum(Tipo.de.dano.sofrido == "Morto") / n() * 100,
+            `Percentual de feridos do total de vitimados em confronto com a polícia` = sum(Tipo.de.dano.sofrido == "Ferido") / n() * 100,
+            `Razão entre feridos e mortos em confronto com a polícia` = `Total de feridos em confronto com a polícia`/ `Total de mortos em confronto com a polícia`) %>%
+  rename_with(~ gsub(".", " ", .x, fixed = TRUE))
+
+#> Município do evento (Destaque para RMBH)
+vitimas_municipio <- vitimas %>%
+  left_join(eventos[, c(3, 5, 19, 85)], by = "Número.do.REDS.(principal)", suffix = c("", "_2")) %>%
+  filter(Definição.básica.do.caso %!in% filtro_dimensao) %>%
+  mutate(Município = rm_accent(Município_2),
+         Municipio = case_when(Município_2 == "BELO HORIXONTE" ~ "BELO HORIZONTE",
+                               Município_2 == "BETOM" ~ "BETIM",
+                               Município_2 == "BOM DESPCAHO" ~ "BOM DESPACHO",
+                               Município_2 == "JOAO MOLEVADE" ~ "JOAO MONLEVADE",
+                               Município_2 == "JOAO PINHEIROI" ~ "JOAO PINHEIRO",
+                               Município_2 == "MONTE CRAMELO" ~ "MONTE CARMELO",
+                               Município_2 == "NOVA SERRADA" ~ "NOVA SERRANA",
+                               Município_2 == "PEDRO LEODOLDO" ~ "PEDRO LEOPOLDO",
+                               is.na(Município) ~ "SEM INFORMAÇÃO",
+                               TRUE ~ Município)) %>%
+  group_by(Município) %>%
+  summarise(Total = n()) %>%
+  arrange(-Total)
+
+  
+#> Corrigir e colocar a variável de municípios com a informação da base de eventos
+
+# * Escrever xlsx ---------------------------------------------------------
+## Create Workbook object and add worksheets
+wb_dimensao <- createWorkbook()
+
+## Add worksheets
+addWorksheet(wb_dimensao, "Mortos")
+addWorksheet(wb_dimensao, "Feridos")
+addWorksheet(wb_dimensao, "Cidadaos por inst")
+addWorksheet(wb_dimensao, "Policiais por inst")
+addWorksheet(wb_dimensao, "Letalidade")
+addWorksheet(wb_dimensao, "Vitimizacao")
+addWorksheet(wb_dimensao, "Razao")
+addWorksheet(wb_dimensao, "Localidade")
+
+## Write data in worksheets
+writeData(wb_dimensao, "Mortos", vitimas_mortos)
+writeData(wb_dimensao, "Feridos", vitimas_feridos)
+writeData(wb_dimensao, "Cidadaos por inst", vitimas_mortos_e_feridos)
+writeData(wb_dimensao, "Policiais por inst", vitimas_policiais_mortos_e_feridos)
+writeData(wb_dimensao, "Letalidade", vitimas_taxa_letalidade)
+writeData(wb_dimensao, "Vitimizacao", vitimas_taxa_mortalidade_policial)
+writeData(wb_dimensao, "Razao", vitimas_razao_mortos_feridos)
+writeData(wb_dimensao, "Localidade", vitimas_municipio)
+
+## Header style
+headerStyle <- createStyle(border = "TopBottom", textDecoration = c("BOLD"))
+addStyle(wb_dimensao, sheet = 1, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 2, headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 3, headerStyle, rows = 1, cols = 1:6, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 4, headerStyle, rows = 1, cols = 1:7, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 5, headerStyle, rows = 1, cols = 1:6, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 6, headerStyle, rows = 1, cols = 1:6, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 7, headerStyle, rows = 1, cols = 1:6, gridExpand = TRUE)
+addStyle(wb_dimensao, sheet = 8, headerStyle, rows = 1, cols = 1:2, gridExpand = TRUE)
+
+## Save xlsx
+saveWorkbook(wb_dimensao, "produtos/Dimensão da Letalidade e Vitimização Policial em MG.xlsx", overwrite = TRUE)
+
+rm(list=ls(pattern="^vitimas_"))
+rm(list=ls(pattern="^eventos_"))
+rm(homicidios_mg, policiais_mg, pop_mg)
+
+
+## Coordenadas geográficas para correção -----------------------------------
+library(geobr)
+library(sf)
+library(tidyverse)
+library(bit64)
+
+source("scripts/function_dg2dec.R")
+
+#> Coordenadas
+eventos_coordenadas_na <- read.xlsx("data/correção/coord.xlsx") %>%
+  rename("lat" = `Coordenadas.Geográficas.-.Latitude`,
+         "lon" = `Coordenadas.Geográficas.-.Longitude`) %>%
+  select(`Número.do.REDS.(principal)`, lat, lon)
+
+eventos_coordenadas <- eventos %>%
+  filter(Definição.básica.do.caso %!in% c("HOMICÍDIO E SUICÍDIO POLICIAL (Policial mata alguém e se suicida na sequência)",
+                                          "SUICÍDIO POLICIAL (fato mais grave é o SUICÍDIO de policial)")) %>%
+  mutate(lat = str_remove_all(`Coordenadas.Geográficas.-.Latitude`, "[^0-9 ]"),
+         lat = str_squish(lat),
+         lat = ifelse(lat == "", NA, lat),
+         lon = str_remove_all(`Coordenadas.Geográficas.-.Longitude`, "[^0-9 ]"),
+         lon = str_squish(lon),
+         lon = ifelse(lon == "", NA, lon)) %>%
+  select(`Número.do.REDS.(principal)`, `Coordenadas.Geográficas.-.Latitude`, lat, `Coordenadas.Geográficas.-.Longitude`, lon) %>%
+  mutate(lon = ifelse(`Número.do.REDS.(principal)` == 2015004459659001, "43 20 6", lon),
+         lon = ifelse(`Número.do.REDS.(principal)` == 2015014355496001, "43 59 24", lon),
+         lon = ifelse(`Número.do.REDS.(principal)` == 2018039148572001, "46 59 57", lon),
+         lon = ifelse(`Número.do.REDS.(principal)` == 2018045700110001, "43 54 42", lon),
+         lon = ifelse(`Número.do.REDS.(principal)` == 2017018462556001, "44 0 36", lon),
+         lon = ifelse(`Número.do.REDS.(principal)` == 2017034460500001, "44 0 16", lon)
+         ) %>%
+  separate(lat, c("lat_1", "lat_2", "lat_3"),sep = " ", remove = FALSE) %>%
+  separate(lon, c("lon_1", "lon_2", "lon_3"),sep = " ", remove = FALSE) %>%
+  transmute(`Número.do.REDS.(principal)` = `Número.do.REDS.(principal)`,
+            lat = paste(lat_1, "° ", lat_2, "' ", lat_3, '"', sep = ""),
+            lat = dg2dec(lat, Dg = "°", Min = "'", Sec = '"'),
+            lon = paste(lon_1, "° ", lon_2, "' ", lon_3, '"', sep = ""),
+            lon = dg2dec(lon, Dg = "°", Min = "'", Sec = '"'),
+            lat = as.numeric(paste("-", lat, sep = "")),
+            lon = as.numeric(paste("-", lon, sep = ""))) %>%
+  left_join(eventos_coordenadas_na, by = "Número.do.REDS.(principal)", suffix = c("", "_2")) %>%
+  transmute(lat = ifelse(is.na(lat), lat_2, lat),
+            lon = ifelse(is.na(lon), lon_2, lon)) %>%
+  filter(!is.na(lat))
+  
+eventos_a_serem_encontrados <- eventos %>%
+  rename("lat" = `Coordenadas.Geográficas.-.Latitude`,
+         "lon" = `Coordenadas.Geográficas.-.Longitude`) %>%
+  filter(str_detect(lat, "XX")) %>%
+  select(`Número.do.REDS.(principal)`, `Local.(Endereço)`, Número.e.complemento, Bairro, Município, lat, lon) %>%
+  mutate(lat = NA,
+         lon = NA)
+
+write.xlsx(eventos_coordenadas, "produtos/eventos_coordenadas.xlsx", asTable = FALSE)
+
+# Limpar base de dados ----------------------------------------------------
+
+# Autores
+autores <- autores %>%
+  left_join(eventos[,c(5, 8)], by = "Número.do.REDS.(principal)") %>%
+  mutate(diff_data = difftime(Data.do.Fato, Data.de.Nascimento, units = "days"),
+         Idade = diff_data/365,
+         Idade = as.integer(Idade),
+         Idade = ifelse(Idade <= 18, NA, Idade)) %>%
+  select(-diff_data) %>%
+  mutate(`Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` == "2015015566258001" &
+                                                                                               Nome.completo.do.autor == "UILHAN GENEROSO DE JESUS", 0, `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]`),
+         `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]` = ifelse(`Número.do.REDS.(principal)` == "2015020057272001" &
+                                                                                               Nome.completo.do.autor == "RODRIGO CESAR DA SILVA", 0, `Tipo.e.número.de.armas.em.poder.do.autor.[Garrucha./.revólver.artesanal]`),
+         `Tipo.e.número.de.armas.em.poder.do.autor.[Pistola]` = ifelse(`Número.do.REDS.(principal)` == "2015015566258001" &
+                                                                         Nome.completo.do.autor == "UILHAN GENEROSO DE JESUS", 1, `Tipo.e.número.de.armas.em.poder.do.autor.[Pistola]`)) %>%
+  mutate(`Autor.sofreu.dano?` = ifelse(`Autor.é."POLICIAL".ou."NÃO-POLICIAL"?` == "POLICIAL" & `Autor.sofreu.dano?` == "Sim" &
+                                         Tipo.de.dano.sofrido.pelo.autor == "NÃO SE APLICA", "Não", `Autor.sofreu.dano?`))
+
+# Vitimas
+vitimas <- vitimas %>%
+  left_join(eventos[,c(5, 8)], by = "Número.do.REDS.(principal)") %>%
+  mutate(diff_data = difftime(Data.do.Fato, Data.de.Nascimento, units = "days"),
+         Idade = diff_data/365,
+         Idade = as.integer(Idade),
+         Idade = ifelse(Idade < 1, NA, Idade)) %>%
+  mutate(Vítima.causou.dano = ifelse(`Número.do.REDS.(principal)` == "2017030982607001" & Nome.completo.da.vítima == "LUCAS SEBASTIAN DAVID SOARES VENUTIANO",
+                                     "Não", Vítima.causou.dano)) %>%
+  select(-diff_data)
+
+# Eventos
+eventos <- eventos %>%
+  mutate(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = ifelse(str_detect(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, "INFORMA") | 
+                                                                                                 is.na(`Fato.que.motivou.a.interação.direta.entre.policiais.e."não-policiais"`), "SEM INFORMAÇÃO", `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`),
+         `Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"` = str_replace_all(`Fato.que.motivou.a.interação.direta.entre.policiais.e.\"não-policiais\"`, " \\(marque \"não se aplica\" na questão 32 e vá para a questão 33\\)", "")) %>%
+  mutate(`Houve.socorro.à(s).vítima(s)?` = ifelse(`Houve.socorro.à(s).vítima(s)?` == "Não (marque \"NÃO SE APLICA na questão 40)",
+                                                  "Não", `Houve.socorro.à(s).vítima(s)?`),
+         `Houve.socorro.à(s).vítima(s)?` = ifelse(`Houve.socorro.à(s).vítima(s)?` == "SEM INFORMAÇÃO (marque \"NÃO SE APLICA na questão 40)",
+                                                  "SEM INFORMAÇÃO", `Houve.socorro.à(s).vítima(s)?`),
+         `Houve.socorro.à(s).vítima(s)?` = factor(`Houve.socorro.à(s).vítima(s)?`, 
+                                                  labels = c("Não", "Sim", "SEM INFORMAÇÃO"),
+                                                  levels = c("Não", "Sim", "SEM INFORMAÇÃO"))) %>%
+  mutate(`Dia da semana do fato` = wday(Data.do.Fato, label = TRUE)) %>%
+  mutate(Hora.do.Fato = hms::as_hms(Hora.do.Fato),
+         `Faixa de hora do fato` = case_when(Hora.do.Fato < hms::as_hms('06:00:00') ~ 'Madrugada',
+                                                Hora.do.Fato %in% c(hms::as_hms('06:00:00'):hms::as_hms('11:59:00')) ~ 'Manhã',
+                                                Hora.do.Fato %in% c(hms::as_hms('12:00:00'):hms::as_hms('17:59:00')) ~ 'Tarde',
+                                                Hora.do.Fato >= hms::as_hms('18:00:00') ~ 'Noite'),
+         `Faixa de hora do fato` = factor(`Faixa de hora do fato`, label = c('Madrugada', 'Manhã', 'Tarde', 'Noite'),
+                                             levels = c('Madrugada', 'Manhã', 'Tarde', 'Noite'))) %>%
+  select(-c(Nova.Nomenclatura, Nova.Nomenclatura_2))
+
+
+# * Escrever bases limpas -------------------------------------------------
+
+write.xlsx(eventos, "produtos/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Eventos - Base Limpa julho_2021.xlsx", asTable = FALSE)
+write.xlsx(autores, "produtos/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Autores - Base Limpa julho_2021.xlsx", asTable = FALSE)
+write.xlsx(vitimas, "produtos/Letalidade e Vitimização Policial em Minas Gerais - Formulário de Vítimas - Base Limpa julho_2021.xlsx", asTable = FALSE)

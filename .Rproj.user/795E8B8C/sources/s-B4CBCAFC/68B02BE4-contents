@@ -1,0 +1,192 @@
+# Informação Geral --------------------------------------------------------
+
+# Análise dos dados secundários de Conselheiro Lafaiete
+# Alexandre Freitas
+# Email: alexandre.freitas@fjp.mg.gov.br
+# Data: 01/2022
+
+# Ler bibliotecas ---------------------------------------------------------
+
+library(tidyverse)
+library(geobr)
+library(sf)
+library(abjutils)
+library(ggspatial)
+library(ggrepel)
+
+
+options(scipen=999)
+# Mapa Conselheiro Lafaiete -----------------------------------------------
+help(geobr)
+
+# Mapa geral
+cl_geral <- read_municipality(code_muni = 3118304, year = 2019)
+
+# Mapa Territorio CRAS
+cras_territorio <- st_read("data/shapes/divisao_cras/CRAS.shp")
+
+# Geo CRAS
+
+equipamentos <- st_read("data/shapes/equipamentos/Equipamentos sociais localização.shp")
+
+cras_geo <- equipamentos %>%
+  filter(Tipo %in% c("CRAS I", "CRAS II", "CRAS III", "CRAS IV")) %>%
+  mutate(UN_CRAS = case_when(Tipo == "CRAS I" ~ 1,
+                             Tipo == "CRAS II" ~ 2,
+                             Tipo == "CRAS III" ~ 3,
+                             Tipo == "CRAS IV" ~ 4))
+
+cras_territorio <- cras_territorio %>%
+  filter(!is.na(UN_CRAS)) %>%
+  mutate(ponto_central_bairro = st_point_on_surface(st_geometry(cras_territorio)),
+         distancia = case_when(UN_CRAS == 1 ~ st_distance(ponto_central_bairro, select(filter(cras_geo, UN_CRAS == 1), geometry)),
+                               UN_CRAS == 2 ~ st_distance(ponto_central_bairro, select(filter(cras_geo, UN_CRAS == 2), geometry)),
+                               UN_CRAS == 3 ~ st_distance(ponto_central_bairro, select(filter(cras_geo, UN_CRAS == 3), geometry)),
+                               UN_CRAS == 4 ~ st_distance(ponto_central_bairro, select(filter(cras_geo, UN_CRAS == 4), geometry))),
+         distancia_2 = as.numeric(distancia),
+         distancia_2 = round(distancia_2))
+  
+# Mapa distancia ----------------------------------------------------------
+mapa_distancia
+mapa_distancia <- cl_geral %>%
+  ggplot() +
+  geom_sf(color = "black") +
+  geom_sf(data = cras_territorio, aes(fill = distancia_2),color = NA) +
+  geom_sf(data = cras_geo, color = "red") +
+  geom_text_repel(data = filter(cras_territorio, distancia_2 >= 5000), aes(label = pBAIRRO, geometry = geometry), label.size = 0.1,
+                   stat = "sf_coordinates", min.segment.length = 0, box.padding = 2) +
+#  geom_text_repel(data = cras_geo, aes(label = Tipo, geometry = geometry), label.size = 0.1,
+#            stat = "sf_coordinates", min.segment.length = 0, nudge_y = -0.040, nudge_x = -0.1, check_overlap = TRUE) +
+#  geom_label_repel(data = filter(cl_census, distancia_2 > 6000), aes(label = code_muni, geometry = geom), label.size = 0.1,
+#                   stat = "sf_coordinates", min.segment.length = 0) +
+  #  annotate(geom = "text", y = -20.75, x = -43.9, label = "Anotação teste") +
+  #  geom_sf(data = cl_census, fill = NA) +
+  scale_fill_distiller(palette = "RdPu", direction = 1, breaks = c(1500, 3000, 4500, 6000, 7500, 9000)) +
+  annotation_scale(location = "bl", width_hint = 0.5) +
+  annotation_north_arrow(location = "tl", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
+                         height = unit(1, "cm"),
+                         width = unit(1, "cm"),
+                         style = north_arrow_fancy_orienteering) +
+  labs(title = "Mapa com a distância do centro dos bairros até o CRAS de referência", 
+       subtitle = "Conselheiro Lafaiete",
+       fill = "Distância (m)",
+       caption = "Os bairros indicados estão a 5km ou mais de distância da prefeitura.",
+       x = NULL) +
+  theme_bw()
+mapa_distancia
+
+ggsave("Distancia - Bairros a CRAS - Conselheiro Lafaiete.png", mapa_distancia, units = "px", width = 1540, height = 1700)
+
+# Mapa dos 
+cl_census <- read_census_tract(code_tract = 3118304)
+cl_census_no_geom <- st_drop_geometry(cl_census)
+
+cl_census %>%
+  count(name_neighborhood)
+
+
+# Mapa dos bairros - Geral
+bairros <- read_neighborhood(year = 2010, simplified = TRUE, showProgress = TRUE)
+mun <- read_municipal_seat(year = 2010, showProgress = TRUE)
+prefeitura <- filter(mun, name_muni == "Conselheiro Lafaiete")
+
+plot(st_geometry(cl_census[1]), axes = TRUE)
+plot(st_geometry(prefeitura), add = TRUE, pch = 4, col = "red")
+plot(st_point_on_surface(st_geometry(cl_census[1])), add = TRUE)
+
+# Distância dos bairros até a prefeitura
+
+cl_census <- cl_census %>%
+  mutate(distancia = st_distance(geom, prefeitura$geom))
+
+# Grafico - Distancia -----------------------------------------------------
+
+cl_census <- cl_census %>%
+  mutate(bairro = as.character(row_number()),
+         distancia_2 = as.numeric(distancia),
+         distancia_2 = round(distancia_2))
+
+distancia_media <- mean(cl_census$distancia_2)
+
+cl_census %>%
+  mutate(bairro = fct_reorder(bairro, desc(distancia_2))) %>%
+  ggplot(aes(x = distancia_2, y=bairro)) +
+  geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+  geom_vline(xintercept = distancia_media) +
+  xlab("") +
+  theme_bw()
+
+
+# Mapa distancia ----------------------------------------------------------
+mapa_distancia <- cl_census %>%
+  ggplot() +
+  geom_sf(aes(fill = distancia_2),color = NA) +
+  geom_sf(data = prefeitura, color = "red") +
+#  geom_label_repel(data = prefeitura, aes(label = name_muni, geometry = geom), label.size = 0.1,
+#                            stat = "sf_coordinates", min.segment.length = 0) +
+  geom_label_repel(data = filter(cl_census, distancia_2 > 6000), aes(label = code_muni, geometry = geom), label.size = 0.1,
+                   stat = "sf_coordinates", min.segment.length = 0) +
+#  annotate(geom = "text", y = -20.75, x = -43.9, label = "Anotação teste") +
+#  geom_sf(data = cl_census, fill = NA) +
+  scale_fill_distiller(palette = "RdPu", direction = 1) +
+  annotation_scale(location = "bl", width_hint = 0.5) +
+  annotation_north_arrow(location = "tl", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
+                         height = unit(1, "cm"),
+                         width = unit(1, "cm"),
+                         style = north_arrow_fancy_orienteering) +
+#  ggtitle("Mapa com a distância dos setores censitários até à Prefeitura", subtitle = "Conselheiro Lafaiete") +
+  labs(title = "Mapa com a distância dos setores censitários\naté à Prefeitura", 
+       subtitle = "Conselheiro Lafaiete",
+       fill = "Distância (m)",
+       caption = "Os setores censitários discriminados estão\na 6.000m ou mais de distância da prefeitura.",
+       x = NULL) +
+  theme_bw()
+mapa_distancia
+
+ggsave("Distancia - Bairros a prefeitura - Conselheiro Lafaiete.png", mapa_distancia, units = "px", width = 1540, height = 1700)
+
+plot(cl_census["distancia"])
+
+
+bairros_sem_geom <- st_drop_geometry(bairros)
+bairros_sem_geom <- filter(bairros_sem_geom, code_state == 31)
+
+# CRAS --------------------------------------------------------------------
+
+
+# CRAS 1
+
+cras_1 <- "Lima Dias I, Lima Dias II, São Benedito, Santa Cruz, Santa Terezinha, Satélite, BR 040 Km 622 à Km 624, Belvedere, Nova Cachoeira, Siderúrgico, Cachoeira, São Gonçalo, Mato Dentro, Três Barras, Gagé, Alvorada, Jardim Alvorada, Areal, Carijós, Novo Carijós, São Dimas, São Sebastião, Expedicionários, Lourdes, Oscar Correia, São Lucas, Santo Agostinho, Parque das Acácias, Vila Fernandes, Topázio, BNH, Alto Vista Alegre/Guarani, Santa Rosa, Santa Luzia"
+cras_1 <- str_to_upper(cras_1)
+cras_1 <- rm_accent(cras_1)
+cras_1 <- as.list(strsplit(cras_1, ", ")[1])
+cras_1
+
+# CRAS 2
+
+cras_2  <- "Bellavinha, Gigante, Manoel de Paula, Morro da Mina, Nossa Senhora da Conceição, Nossa Senhora da Paz, Capela da Paz, Resende, Sagrado Coração de Jesus, São Judas Tadeu, Tietê, Almeidas, Museu, Rancho Novo, Chapada, Campo Alegre,  Arcádia, Água Limpa, Água Preta, Alto da Varginha, Albertina, Recanto Colibris, JK, Manoel Correia, Morada do Sol, Santa Efigênia, Ouro Verde, Monte Cristo, Novo Horizonte, Centro, Boa Vista, Quinta das Flores"
+cras_2 <- str_to_upper(cras_2)
+cras_2 <- rm_accent(cras_2)
+cras_2 <- as.list(strsplit(cras_2, ", ")[1])
+cras_2
+
+# CRAS 3
+
+cras_3 <- "Bela Vista, Jardim das Flores, Jardim do Sol, Moinhos, Progresso, Sion, Real de Queluz, Rochedo, São José, Santa Maria, Vila Rica, Jardim América, Vargas, Santo Antônio, Angélica, Rosário, Granja das Hortências, Jardim Monte Verde, Albinópolis, Parque Montreal, Parque Cidade, Santa Clara, União, Jardim Eldorado, Violeiros, Vila dos Engenheiros"
+cras_3 <- str_to_upper(cras_3)
+cras_3 <- rm_accent(cras_3)
+cras_3 <- as.list(strsplit(cras_3, ", ")[1])
+cras_3
+
+# CRAS 4
+
+cras_4 <- "Funcionários, Linhazinha, Dom Luciano (antigo Loteamento São Jorge), Nossa Senhora da Guia, Santa Matilde, São João, São Vicente (zona rural), Bandeirantes, Bom Pastor, Buarque de Macedo, Amaro Ribeiro, Parque dos Ferroviários / Ferroviários, Paulo VI, Queluz, Copacabana, Fonte Grande, Jardim Europa, Triângulo, São Geraldo, Vale das Tamareiras, Sagrada Família, Parque Dom Bosco, São Marcos, Campo do Independente"
+cras_4 <- str_to_upper(cras_4)
+cras_4 <- rm_accent(cras_4)
+cras_4 <- as.list(strsplit(cras_4, ", ")[1])
+cras_4
+
+
+
